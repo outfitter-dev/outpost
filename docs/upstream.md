@@ -75,16 +75,12 @@ Actions) if you want upstream's own test suite to run on `outpost` PRs.
 ## CI on bot PRs
 
 GitHub doesn't run workflows on PRs opened with the default `GITHUB_TOKEN`.
-To get CI on bump PRs, and to let fork-sync write to the fork at all, create a
-GitHub App with Contents and Pull requests read/write, install it on this repo
-and on outfitter-dev/agentrelay, then set:
+To get CI on bump PRs, and to let fork-sync write to the fork at all, the
+workflows use a GitHub App. [github-app.md](github-app.md) has the exact
+settings and permissions.
 
-- repository variable `UPSTREAM_BOT_APP_ID`
-- repository secret `UPSTREAM_BOT_PRIVATE_KEY`
-
-Without them upstream-bump still opens PRs, but CI won't start until someone
-pushes to the branch, and fork-sync skips. Either way, the repo setting "Allow GitHub Actions to
-create and approve pull requests" has to be on.
+Without it, upstream-bump still opens PRs, but CI won't start until someone
+pushes to the branch, and fork-sync skips.
 
 ## Patching (only if we must)
 

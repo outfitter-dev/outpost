@@ -7,7 +7,7 @@ name: Fork sync
 # that PR and merge it with a merge commit. Once it lands, upstream-bump opens
 # the pin PR here.
 #
-# Needs the GitHub App token (UPSTREAM_BOT_APP_ID / UPSTREAM_BOT_PRIVATE_KEY)
+# Needs the GitHub App token (UPSTREAM_BOT_CLIENT_ID / UPSTREAM_BOT_PRIVATE_KEY)
 # installed on both repos: GITHUB_TOKEN cannot write to another repository.
 
 on:
@@ -30,8 +30,8 @@ jobs:
       - name: Require app token
         id: gate
         run: |
-          if [ -z "${{ vars.UPSTREAM_BOT_APP_ID }}" ]; then
-            echo "::notice::UPSTREAM_BOT_APP_ID is not set; fork sync needs a GitHub App with access to the fork. Skipping."
+          if [ -z "${{ vars.UPSTREAM_BOT_CLIENT_ID }}" ]; then
+            echo "::notice::UPSTREAM_BOT_CLIENT_ID is not set; fork sync needs a GitHub App with access to the fork. Skipping."
             echo "run=false" >> "$GITHUB_OUTPUT"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
@@ -55,7 +55,7 @@ jobs:
         if: steps.status.outputs.needs_sync == 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.UPSTREAM_BOT_APP_ID }}
+          client-id: ${{ vars.UPSTREAM_BOT_CLIENT_ID }}
           private-key: ${{ secrets.UPSTREAM_BOT_PRIVATE_KEY }}
           owner: outfitter-dev
           repositories: agentrelay
