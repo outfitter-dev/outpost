@@ -103,7 +103,13 @@ jobs:
 
           existing="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
           if [ -n "$existing" ]; then
-            gh pr edit "$existing" --title "$title" --body-file "$RUNNER_TEMP/body.md" --add-label upstream --add-label "upstream:$LEVEL"
+            stale=()
+            for label in $(gh pr view "$existing" --json labels --jq '.labels[].name'); do
+              if [[ "$label" == upstream:* && "$label" != "upstream:$LEVEL" ]]; then
+                stale+=(--remove-label "$label")
+              fi
+            done
+            gh pr edit "$existing" --title "$title" --body-file "$RUNNER_TEMP/body.md" --add-label upstream --add-label "upstream:$LEVEL" "${stale[@]}"
             echo "Updated #$existing" >> "$GITHUB_STEP_SUMMARY"
           else
             gh pr create --base main --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/body.md" --label upstream --label "upstream:$LEVEL"

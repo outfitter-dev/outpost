@@ -40,18 +40,33 @@ jobs:
       RELAYCAST_BASE_URL: ${{ vars.RELAYCAST_BASE_URL }}
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
     steps:
-      - name: Check Fly configuration
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Skip when Fly isn't configured yet, or when a push only moved another
+      # upstream's pin (a relay-only bump must not restart the engine).
+      - name: Decide whether to deploy
         id: cfg
+        env:
+          BEFORE: ${{ github.event.before }}
         run: |
+          ready=true
           if [ -z "$FLY_APP" ]; then
             echo "::notice::FLY_APP is not set on the production environment; skipping deploy."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+            ready=false
+          elif [ "$GITHUB_EVENT_NAME" = push ] && [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            others="$(git diff --name-only "$BEFORE" "$GITHUB_SHA" \
+              | grep -E '^(deploy/relaycast/|patches/relaycast/|\.github/actions/build-relaycast/|\.github/workflows/deploy\.yml$|scripts/upstream\.mjs$|scripts/smoke-relaycast\.sh$)' || true)"
+            pin_before="$(git show "$BEFORE:upstream.json" | jq -c .upstreams.relaycast)"
+            pin_now="$(jq -c .upstreams.relaycast upstream.json)"
+            if [ -z "$others" ] && [ "$pin_before" = "$pin_now" ]; then
+              echo "::notice::relaycast pin unchanged; skipping deploy."
+              ready=false
+            fi
           fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.cfg.outputs.ready == 'true'
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: steps.cfg.outputs.ready == 'true'
         with:

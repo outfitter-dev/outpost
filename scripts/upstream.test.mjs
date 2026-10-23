@@ -4,9 +4,11 @@ import { test } from 'node:test';
 
 import {
   assertBaseUrl,
+  assertFlyIdentifiers,
   attentionChanges,
   bumpLevel,
   changelogExcerpt,
+  codeSpan,
   latestTag,
   parseLsRemote,
   parseVersion,
@@ -101,4 +103,15 @@ test('upstream.json pins are well formed', () => {
     assert.ok(parseVersion(upstream.tag, upstream.tagPattern), `${name}.tag matches tagPattern`);
     assert.ok(Array.isArray(upstream.watchPaths), `${name}.watchPaths`);
   }
+});
+
+test('codeSpan neutralises backticks and control characters', () => {
+  assert.equal(codeSpan('a`](https://evil)`b'), '`a?](https://evil)?b`');
+  assert.equal(codeSpan('x\ny'), '`x?y`');
+});
+
+test('assertFlyIdentifiers rejects values that could break out of TOML strings', () => {
+  assert.doesNotThrow(() => assertFlyIdentifiers({ FLY_APP: 'outpost-relay', FLY_PRIMARY_REGION: 'iad' }));
+  assert.throws(() => assertFlyIdentifiers({ FLY_APP: 'x"\nprimary_region = "ams', FLY_PRIMARY_REGION: 'iad' }), /FLY_APP/);
+  assert.throws(() => assertFlyIdentifiers({ FLY_APP: 'ok', FLY_PRIMARY_REGION: 'iad"' }), /REGION/);
 });

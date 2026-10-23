@@ -125,6 +125,18 @@ export function renderTemplate(template, env) {
   return rendered;
 }
 
+/** Render an upstream-controlled string as inert inline code in the PR body. */
+export function codeSpan(text) {
+  const clean = String(text).replace(/[\u0000-\u001f`]/g, '?');
+  return `\`${clean}\``;
+}
+
+/** Fly app names and region codes are interpolated into TOML strings; allow only their real shapes. */
+export function assertFlyIdentifiers(env) {
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(env.FLY_APP ?? '')) throw new Error('FLY_APP must be a Fly app name (lowercase letters, digits, hyphens)');
+  if (!/^[a-z]{3}$/.test(env.FLY_PRIMARY_REGION ?? '')) throw new Error('FLY_PRIMARY_REGION must be a three-letter Fly region code');
+}
+
 /** Mirrors the upstream entrypoint's --base-url rules so a bad value fails before deploy. */
 export function assertBaseUrl(value) {
   const url = new URL(value);
@@ -246,7 +258,8 @@ async function bump({ positional, flags }) {
 
   const fromVersion = parseVersion(upstream.tag, upstream.tagPattern);
   const level = target ? bumpLevel(fromVersion, target.version) : 'none';
-  if (!target || (level === 'none' && typeof flags.to !== 'string')) {
+  const samePin = target && target.tag === upstream.tag && target.commit === upstream.commit;
+  if (!target || samePin || (level === 'none' && typeof flags.to !== 'string')) {
     console.log(`${name} is up to date at ${upstream.tag}`);
     setOutput({ changed: 'false' });
     return;
@@ -286,12 +299,12 @@ async function prBody({ name, upstream, from, fromCommit, fromVersion, target, l
     lines.push(`**${files.length} files changed.**`, '');
     if (attention.length) {
       lines.push('> [!IMPORTANT]', '> Review before merging. These touch the database schema, the image build, or the API contract:', '>');
-      for (const file of attention) lines.push(`> - \`${file}\``);
+      for (const file of attention) lines.push(`> - ${codeSpan(file)}`);
       lines.push('');
     }
     if (watched.length) {
       lines.push('<details><summary>Changes under watched paths (tests excluded)</summary>', '');
-      for (const file of watched.slice(0, 50)) lines.push(`- \`${file}\``);
+      for (const file of watched.slice(0, 50)) lines.push(`- ${codeSpan(file)}`);
       if (watched.length > 50) lines.push(`- …and ${watched.length - 50} more`);
       lines.push('', '</details>', '');
     } else {
@@ -371,7 +384,9 @@ function flyConfig({ positional, flags }) {
   if (!upstream.deploy) throw new Error(`${name} has no deploy target`);
   const template = readFileSync(join(ROOT, 'deploy', upstream.deploy, 'fly.template.toml'), 'utf8');
   const env = { ...process.env, UPSTREAM_TAG: upstream.tag, UPSTREAM_COMMIT: upstream.commit };
-  if (env.RELAYCAST_BASE_URL) env.RELAYCAST_BASE_URL = assertBaseUrl(env.RELAYCAST_BASE_URL);
+  assertFlyIdentifiers(env);
+  if (!env.RELAYCAST_BASE_URL) throw new Error('Missing environment variables: RELAYCAST_BASE_URL');
+  env.RELAYCAST_BASE_URL = assertBaseUrl(env.RELAYCAST_BASE_URL);
   const rendered = renderTemplate(template, env);
   if (typeof flags.out === 'string') writeFileSync(flags.out, rendered);
   else process.stdout.write(rendered);
