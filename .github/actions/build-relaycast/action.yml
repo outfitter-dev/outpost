@@ -1,0 +1,40 @@
+name: Build relaycast engine
+description: Build the self-host engine image from the pinned upstream commit and smoke-test it.
+inputs:
+  image:
+    description: Image reference to tag the build with.
+    required: true
+outputs:
+  tag:
+    description: Pinned upstream tag.
+    value: ${{ steps.pin.outputs.tag }}
+  commit:
+    description: Pinned upstream commit.
+    value: ${{ steps.pin.outputs.commit }}
+runs:
+  using: composite
+  steps:
+    - id: pin
+      shell: bash
+      run: |
+        echo "tag=$(jq -r .upstreams.relaycast.tag upstream.json)" >> "$GITHUB_OUTPUT"
+        echo "commit=$(jq -r .upstreams.relaycast.commit upstream.json)" >> "$GITHUB_OUTPUT"
+
+    # Applies patches/relaycast/*.patch, if any, on top of the pin.
+    - name: Check out pinned upstream
+      shell: bash
+      run: node scripts/upstream.mjs checkout relaycast --dir .upstream/relaycast
+
+    # Upstream's own Dockerfile, unmodified; its RELAYCAST_ENGINE_VERSION default
+    # matches the tag, and the build asserts docker/package.json agrees.
+    - name: Build image
+      shell: bash
+      run: |
+        docker build \
+          --label "org.opencontainers.image.revision=${{ steps.pin.outputs.commit }}" \
+          --label "dev.outfitter.outpost.upstream-tag=${{ steps.pin.outputs.tag }}" \
+          -t "${{ inputs.image }}" .upstream/relaycast
+
+    - name: Smoke test
+      shell: bash
+      run: scripts/smoke-relaycast.sh "${{ inputs.image }}"

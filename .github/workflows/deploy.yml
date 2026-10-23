@@ -1,0 +1,117 @@
+name: Deploy
+
+# Deploys the pinned relaycast engine to Fly when main changes what we run.
+# Configuration lives on the `production` GitHub environment:
+#   vars:    FLY_APP, FLY_PRIMARY_REGION, RELAYCAST_BASE_URL
+#   secrets: FLY_API_TOKEN (fly tokens create deploy -a <app>)
+# Until FLY_APP is set the deploy steps are skipped (environment variables are
+# not visible to a job-level `if`), so the repo works before Fly exists.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - upstream.json
+      - deploy/relaycast/**
+      - patches/relaycast/**
+      - .github/actions/build-relaycast/**
+      - .github/workflows/deploy.yml
+      - scripts/upstream.mjs
+      - scripts/smoke-relaycast.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-relaycast
+  cancel-in-progress: false
+
+jobs:
+  relaycast:
+    name: Deploy relaycast
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.RELAYCAST_BASE_URL }}
+    env:
+      FLY_APP: ${{ vars.FLY_APP }}
+      FLY_PRIMARY_REGION: ${{ vars.FLY_PRIMARY_REGION }}
+      RELAYCAST_BASE_URL: ${{ vars.RELAYCAST_BASE_URL }}
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Skip when Fly isn't configured yet, or when a push only moved another
+      # upstream's pin (a relay-only bump must not restart the engine). If the
+      # previous commit has no upstream.json (first push, unknown base), deploy.
+      - name: Decide whether to deploy
+        id: cfg
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          ready=true
+          if [ -z "$FLY_APP" ]; then
+            echo "::notice::FLY_APP is not set on the production environment; skipping deploy."
+            ready=false
+          elif [ "$GITHUB_EVENT_NAME" = push ] && [ -n "$BEFORE" ] && git cat-file -e "$BEFORE:upstream.json" 2>/dev/null; then
+            others="$(git diff --name-only "$BEFORE" "$GITHUB_SHA" \
+              | grep -E '^(deploy/relaycast/|patches/relaycast/|\.github/actions/build-relaycast/|\.github/workflows/deploy\.yml$|scripts/upstream\.mjs$|scripts/smoke-relaycast\.sh$)' || true)"
+            pin_before="$(git show "$BEFORE:upstream.json" | jq -c .upstreams.relaycast)"
+            pin_now="$(jq -c .upstreams.relaycast upstream.json)"
+            if [ -z "$others" ] && [ "$pin_before" = "$pin_now" ]; then
+              echo "::notice::relaycast pin unchanged; skipping deploy."
+              ready=false
+            fi
+          fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          node-version: 22
+
+      # Render first so a missing variable fails before a 5-minute image build.
+      - name: Render fly.toml
+        if: steps.cfg.outputs.ready == 'true'
+        run: node scripts/upstream.mjs fly-config relaycast --out fly.toml
+
+      - name: Image reference
+        if: steps.cfg.outputs.ready == 'true'
+        id: ref
+        run: |
+          tag="$(jq -r .upstreams.relaycast.tag upstream.json)"
+          echo "image=registry.fly.io/$FLY_APP:$tag-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      # The image that passes the smoke test is the exact image we push.
+      - uses: ./.github/actions/build-relaycast
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          image: ${{ steps.ref.outputs.image }}
+
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # 1.6
+        if: steps.cfg.outputs.ready == 'true'
+
+      - name: Push image to Fly registry
+        if: steps.cfg.outputs.ready == 'true'
+        run: |
+          flyctl auth docker
+          docker push "${{ steps.ref.outputs.image }}"
+
+      - name: Deploy
+        if: steps.cfg.outputs.ready == 'true'
+        run: flyctl deploy --config fly.toml --app "$FLY_APP" --image "${{ steps.ref.outputs.image }}" --wait-timeout 5m
+
+      - name: Verify public health
+        if: steps.cfg.outputs.ready == 'true'
+        run: |
+          for _ in $(seq 1 20); do
+            if curl -fsS "$RELAYCAST_BASE_URL/health" | grep -q '"ok":true'; then
+              echo "healthy at $RELAYCAST_BASE_URL"; exit 0
+            fi
+            sleep 5
+          done
+          echo "health check failed at $RELAYCAST_BASE_URL" >&2
+          exit 1

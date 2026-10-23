@@ -1,0 +1,103 @@
+name: Fork sync
+
+# Keeps our Relay fork (outfitter-dev/agentrelay, branch `outpost`) on current
+# upstream releases. When a newer release isn't merged into `outpost` yet, this
+# opens a PR in the fork from `sync/<tag>` (the release commit itself) into
+# `outpost`. GitHub shows whether it merges cleanly; resolve any conflicts on
+# that PR and merge it with a merge commit. Once it lands, upstream-bump opens
+# the pin PR here.
+#
+# Needs the GitHub App token (UPSTREAM_BOT_CLIENT_ID / UPSTREAM_BOT_PRIVATE_KEY)
+# installed on both repos: GITHUB_TOKEN cannot write to another repository.
+
+on:
+  schedule:
+    - cron: '47 12 * * 1-5' # weekdays, before upstream-bump
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-sync
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    name: Sync relay fork
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require app token
+        id: gate
+        run: |
+          if [ -z "${{ vars.UPSTREAM_BOT_CLIENT_ID }}" ]; then
+            echo "::notice::UPSTREAM_BOT_CLIENT_ID is not set; fork sync needs a GitHub App with access to the fork. Skipping."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.gate.outputs.run == 'true'
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.gate.outputs.run == 'true'
+        with:
+          node-version: 22
+
+      - name: Check fork against upstream releases
+        id: status
+        if: steps.gate.outputs.run == 'true'
+        run: node scripts/upstream.mjs fork-status relay
+
+      - name: Mint app token for the fork
+        id: app-token
+        if: steps.status.outputs.needs_sync == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.UPSTREAM_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.UPSTREAM_BOT_PRIVATE_KEY }}
+          owner: outfitter-dev
+          repositories: agentrelay
+
+      - name: Open sync PR in the fork
+        if: steps.status.outputs.needs_sync == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          FORK: ${{ steps.status.outputs.fork_repo }}
+          BASE: ${{ steps.status.outputs.fork_branch }}
+          MERGED: ${{ steps.status.outputs.merged_tag }}
+          TAG: ${{ steps.status.outputs.latest_tag }}
+          SHA: ${{ steps.status.outputs.latest_commit }}
+        run: |
+          branch="sync/$TAG"
+
+          # Bring upstream main into the fork's main so the release commit
+          # exists in the fork; release tags are cut from upstream main.
+          gh api -X POST "repos/$FORK/merge-upstream" -f branch=main --jq .message || true
+
+          if ! gh api "repos/$FORK/git/ref/heads/$branch" >/dev/null 2>&1; then
+            gh api -X POST "repos/$FORK/git/refs" -f "ref=refs/heads/$branch" -f "sha=$SHA" >/dev/null
+          fi
+
+          existing="$(gh pr list --repo "$FORK" --head "$branch" --base "$BASE" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            echo "Sync PR already open: $FORK#$existing" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          cat > "$RUNNER_TEMP/body.md" <<BODY
+          Merges upstream release \`$TAG\` (\`$SHA\`) into \`$BASE\`. \`$BASE\` currently includes \`${MERGED:-no release}\`.
+
+          [Upstream changes](https://github.com/AgentWorkforce/relay/compare/${MERGED:-$TAG}...$TAG) · [Our changes on $BASE](https://github.com/$FORK/compare/$SHA...$BASE)
+
+          Merge with a merge commit, not squash or rebase: \`$BASE\` has to keep upstream's history so later releases merge cleanly. If GitHub reports conflicts, resolve them on \`$branch\` (merge \`$BASE\` into it, fix, push).
+
+          After this merges, the upstream-bump workflow in outfitter-dev/outpost opens the pin PR.
+
+          _Opened by the fork-sync workflow in outfitter-dev/outpost._
+          BODY
+
+          gh pr create --repo "$FORK" --base "$BASE" --head "$branch" \
+            --title "Merge upstream relay $TAG" --body-file "$RUNNER_TEMP/body.md"
+          echo "Opened sync PR for $TAG in $FORK" >> "$GITHUB_STEP_SUMMARY"

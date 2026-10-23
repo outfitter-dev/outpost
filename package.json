@@ -1,0 +1,14 @@
+{
+  "name": "outpost",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test scripts/*.test.mjs",
+    "upstream:check": "node scripts/upstream.mjs check",
+    "upstream:verify": "node scripts/upstream.mjs verify",
+    "upstream:bump": "node scripts/upstream.mjs bump"
+  }
+}
