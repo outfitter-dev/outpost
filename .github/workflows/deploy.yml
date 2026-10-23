@@ -45,7 +45,8 @@ jobs:
           fetch-depth: 0
 
       # Skip when Fly isn't configured yet, or when a push only moved another
-      # upstream's pin (a relay-only bump must not restart the engine).
+      # upstream's pin (a relay-only bump must not restart the engine). If the
+      # previous commit has no upstream.json (first push, unknown base), deploy.
       - name: Decide whether to deploy
         id: cfg
         env:
@@ -55,7 +56,7 @@ jobs:
           if [ -z "$FLY_APP" ]; then
             echo "::notice::FLY_APP is not set on the production environment; skipping deploy."
             ready=false
-          elif [ "$GITHUB_EVENT_NAME" = push ] && [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+          elif [ "$GITHUB_EVENT_NAME" = push ] && [ -n "$BEFORE" ] && git cat-file -e "$BEFORE:upstream.json" 2>/dev/null; then
             others="$(git diff --name-only "$BEFORE" "$GITHUB_SHA" \
               | grep -E '^(deploy/relaycast/|patches/relaycast/|\.github/actions/build-relaycast/|\.github/workflows/deploy\.yml$|scripts/upstream\.mjs$|scripts/smoke-relaycast\.sh$)' || true)"
             pin_before="$(git show "$BEFORE:upstream.json" | jq -c .upstreams.relaycast)"
