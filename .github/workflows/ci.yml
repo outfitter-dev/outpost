@@ -38,9 +38,10 @@ jobs:
         with:
           image: outpost-relaycast:ci
 
-  # relay is not built here, but its patch queue must still apply to the pin.
-  relay-patches:
-    name: Relay patches apply
+  # relay is not built here yet; check the pinned fork commit is fetchable and
+  # any patches/relay queue still applies to it.
+  relay-checkout:
+    name: Relay fork checkout
     runs-on: ubuntu-latest
     needs: pins
     steps:

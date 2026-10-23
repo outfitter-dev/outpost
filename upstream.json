@@ -1,5 +1,5 @@
 {
-  "$comment": "Pinned upstream versions. Edit with `node scripts/upstream.mjs bump <name>`; CI verifies each tag still resolves to its pinned commit.",
+  "$comment": "Pinned upstream versions. Edit with `node scripts/upstream.mjs bump <name>`; CI verifies each tag still resolves to its pinned commit. An upstream with `fork` is built from fork.commit, which must contain the named release.",
   "upstreams": {
     "relaycast": {
       "repo": "AgentWorkforce/relaycast",
@@ -26,15 +26,25 @@
       "repo": "AgentWorkforce/relay",
       "tag": "v14.0.0",
       "commit": "77c6d1e87296f186c631bc7f3945668ac7b0c697",
+      "fork": {
+        "repo": "outfitter-dev/agentrelay",
+        "branch": "outpost",
+        "commit": "77c6d1e87296f186c631bc7f3945668ac7b0c697"
+      },
       "tagPattern": "^v(\\d+)\\.(\\d+)\\.(\\d+)$",
       "deploy": null,
       "watchPaths": [
+        "crates/broker/",
         "packages/sdk/",
         "packages/cli/",
-        "packages/contracts/"
+        "packages/contracts/",
+        "packages/harnesses/",
+        "packages/harness-driver/"
       ],
       "attentionPatterns": [
-        "^packages/contracts/"
+        "^packages/contracts/",
+        "^crates/broker/src/protocol\\.rs$",
+        "^Cargo\\.lock$"
       ]
     }
   }

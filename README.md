@@ -17,6 +17,7 @@ This repo currently holds the plumbing that keeps us on stock Relay:
 | `patches/<name>/` | Patch queue per upstream, applied on checkout (empty: we run stock) |
 | `.github/workflows/ci.yml` | Tests, pin verification, image build and smoke test |
 | `.github/workflows/upstream-bump.yml` | Weekday job that opens one bump PR per upstream |
+| `.github/workflows/fork-sync.yml` | Weekday job that opens a PR in our Relay fork when a new upstream release needs merging |
 | `.github/workflows/deploy.yml` | Builds the pinned engine and deploys it to Fly on merge |
 
 ## Upstreams
@@ -24,10 +25,11 @@ This repo currently holds the plumbing that keeps us on stock Relay:
 | Name | Repo | Used for |
 | --- | --- | --- |
 | `relaycast` | [AgentWorkforce/relaycast](https://github.com/AgentWorkforce/relaycast) | Self-host engine we run on Fly |
-| `relay` | [AgentWorkforce/relay](https://github.com/AgentWorkforce/relay) | CLI, broker and SDK versions Outpost targets (not deployed) |
+| `relay` | [AgentWorkforce/relay](https://github.com/AgentWorkforce/relay), built from our fork [outfitter-dev/agentrelay](https://github.com/outfitter-dev/agentrelay) (`outpost` branch) | Broker with our harness adapters, plus the CLI and SDK versions Outpost targets |
 
 Both are Apache-2.0. We don't vendor their source; builds check out the pinned
-commit at build time.
+commit at build time. Relaycast runs stock. The broker carries our changes, so
+relay is pinned to a commit on the fork.
 
 ## Common tasks
 

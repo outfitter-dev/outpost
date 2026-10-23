@@ -10,8 +10,10 @@ import {
   changelogExcerpt,
   codeSpan,
   latestTag,
+  newestMergedRelease,
   parseLsRemote,
   parseVersion,
+  releasesDescending,
   renderTemplate,
   watchedChanges,
 } from './upstream.mjs';
@@ -75,7 +77,7 @@ test('changelogExcerpt keeps only versions in (from, to]', () => {
 test('watchedChanges matches path prefixes and exact files', () => {
   const files = ['Dockerfile', 'docker/entrypoint.mjs', 'packages/engine/src/x.ts', 'site/index.md'];
   assert.deepEqual(watchedChanges(files, ['Dockerfile', 'docker/', 'packages/engine/']), files.slice(0, 3));
-  assert.deepEqual(watchedChanges(['packages/engine/src/__tests__/a.test.ts'], ['packages/engine/']), []);
+  assert.deepEqual(watchedChanges(['packages/engine/src/__tests__/a.ts', 'packages/engine/src/b.test.ts'], ['packages/engine/']), []);
 });
 
 test('attentionChanges flags migrations and build inputs', () => {
@@ -102,6 +104,11 @@ test('upstream.json pins are well formed', () => {
     assert.match(upstream.commit, /^[0-9a-f]{40}$/, `${name}.commit`);
     assert.ok(parseVersion(upstream.tag, upstream.tagPattern), `${name}.tag matches tagPattern`);
     assert.ok(Array.isArray(upstream.watchPaths), `${name}.watchPaths`);
+    if (upstream.fork) {
+      assert.match(upstream.fork.repo, /^[\w.-]+\/[\w.-]+$/, `${name}.fork.repo`);
+      assert.match(upstream.fork.commit, /^[0-9a-f]{40}$/, `${name}.fork.commit`);
+      assert.ok(upstream.fork.branch, `${name}.fork.branch`);
+    }
   }
 });
 
@@ -114,4 +121,20 @@ test('assertFlyIdentifiers rejects values that could break out of TOML strings',
   assert.doesNotThrow(() => assertFlyIdentifiers({ FLY_APP: 'outpost-relay', FLY_PRIMARY_REGION: 'iad' }));
   assert.throws(() => assertFlyIdentifiers({ FLY_APP: 'x"\nprimary_region = "ams', FLY_PRIMARY_REGION: 'iad' }), /FLY_APP/);
   assert.throws(() => assertFlyIdentifiers({ FLY_APP: 'ok', FLY_PRIMARY_REGION: 'iad"' }), /REGION/);
+});
+
+test('newestMergedRelease picks the newest release contained in the fork', () => {
+  const releases = releasesDescending(
+    new Map([
+      ['v14.0.0', 'c14'],
+      ['v13.4.1', 'c13'],
+      ['v14.1.0', 'c141'],
+      ['sdk-rust-v99.0.0', 'x'],
+    ]),
+    PATTERN,
+  );
+  assert.deepEqual(releases.map((r) => r.tag), ['v14.1.0', 'v14.0.0', 'v13.4.1']);
+  const merged = new Set(['c14', 'c13']);
+  assert.equal(newestMergedRelease(releases, (c) => merged.has(c)).tag, 'v14.0.0');
+  assert.equal(newestMergedRelease(releases, () => false), null);
 });

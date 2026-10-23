@@ -2,7 +2,10 @@
 
 ## Model
 
-We run Relay stock. `upstream.json` pins each upstream to a release tag and to
+Relaycast runs stock. The relay broker carries our changes (new harness
+adapters), which live on the `outpost` branch of our fork,
+[outfitter-dev/agentrelay](https://github.com/outfitter-dev/agentrelay). See
+[Forked upstreams](#forked-upstreams). `upstream.json` pins each upstream to a release tag and to
 the commit that tag pointed at when we pinned it. Every build reads the pin, so
 what CI tests and what Fly runs is the same commit.
 
@@ -11,6 +14,9 @@ Fields per upstream:
 - `repo`, `tag`, `commit`: the pin.
 - `tagPattern`: which tags count as releases. It's `^vX.Y.Z$`, which skips
   prereleases and per-SDK tags such as `sdk-rust-v10.0.0`.
+- `fork` (optional): `repo`, `branch`, `commit`. When set, builds use
+  `fork.commit`, and `tag`/`commit` name the newest upstream release merged
+  into it. `verify` checks that claim.
 - `deploy`: the directory under `deploy/` that builds and ships it, or `null`.
 - `watchPaths`: path prefixes listed in bump PRs (tests excluded).
 - `attentionPatterns`: regexes that put a file in a "review before merging"
@@ -41,17 +47,43 @@ that flags `migrations/` as one-way. Before merging, snapshot the volume
 (`fly volumes snapshots create <vol-id>`) so a rollback can restore data and
 not just code.
 
+## Forked upstreams
+
+For relay, the fork's `outpost` branch is the source of truth, and our work
+lands there through normal PRs in the fork. Two jobs keep it moving:
+
+1. **`fork-sync.yml`** (here, on weekdays) checks whether the newest upstream
+   release is merged into `outpost`. If it isn't, it syncs the fork's `main`
+   with upstream, creates `sync/<tag>` at the release commit, and opens a PR
+   in the fork from `sync/<tag>` into `outpost`. GitHub shows whether it
+   merges cleanly. Resolve conflicts on that branch and merge **with a merge
+   commit**. We merge upstream in and never rebase `outpost`, so in-flight
+   work isn't disrupted and a conflict only gets resolved once.
+2. **`upstream-bump.yml`** follows the fork branch head. When `outpost` moves
+   (a sync merged, or one of our changes landed), it opens the pin PR here. The
+   PR's level is the upstream bump (`major`/`minor`/`patch`), or `fork` when
+   only our commits changed.
+
+To see what we carry on top of upstream, compare the release with the fork:
+`https://github.com/outfitter-dev/agentrelay/compare/<tag>...outpost`. Send
+self-contained adapters upstream as PRs when they're general enough, since
+every one upstream accepts is one less thing to merge forward.
+
+The fork has GitHub Actions disabled by default. Turn them on (fork Settings →
+Actions) if you want upstream's own test suite to run on `outpost` PRs.
+
 ## CI on bot PRs
 
 GitHub doesn't run workflows on PRs opened with the default `GITHUB_TOKEN`.
-To get CI on bump PRs, create a GitHub App with Contents and Pull requests
-read/write on this repo, then set:
+To get CI on bump PRs, and to let fork-sync write to the fork at all, create a
+GitHub App with Contents and Pull requests read/write, install it on this repo
+and on outfitter-dev/agentrelay, then set:
 
 - repository variable `UPSTREAM_BOT_APP_ID`
 - repository secret `UPSTREAM_BOT_PRIVATE_KEY`
 
-Without them the workflow still opens PRs, but CI won't start until someone
-pushes to the branch. Either way, the repo setting "Allow GitHub Actions to
+Without them upstream-bump still opens PRs, but CI won't start until someone
+pushes to the branch, and fork-sync skips. Either way, the repo setting "Allow GitHub Actions to
 create and approve pull requests" has to be on.
 
 ## Patching (only if we must)
@@ -61,4 +93,5 @@ If we need a fix before upstream ships it, add a `git format-patch` file to
 applies patches in name order on top of the pin, so a patch that no longer
 applies fails the bump PR loudly. Open an
 upstream PR for every patch and delete the patch once a release includes it.
-If patches start piling up, that's when to revisit a fork or subtree.
+Patches suit a stock upstream like relaycast. Anything bigger belongs on a fork,
+the way relay works.
