@@ -1,0 +1,41 @@
+{
+  "$comment": "Pinned upstream versions. Edit with `node scripts/upstream.mjs bump <name>`; CI verifies each tag still resolves to its pinned commit.",
+  "upstreams": {
+    "relaycast": {
+      "repo": "AgentWorkforce/relaycast",
+      "tag": "v11.0.0",
+      "commit": "752d660a9ba6cdb7d1fe692a9fd35621f45f1590",
+      "tagPattern": "^v(\\d+)\\.(\\d+)\\.(\\d+)$",
+      "deploy": "relaycast",
+      "watchPaths": [
+        "Dockerfile",
+        "docker/",
+        "packages/engine/",
+        "packages/types/",
+        "packages/a2a/",
+        "openapi.yaml"
+      ],
+      "attentionPatterns": [
+        "/migrations/",
+        "^Dockerfile$",
+        "^docker/",
+        "^openapi\\.yaml$"
+      ]
+    },
+    "relay": {
+      "repo": "AgentWorkforce/relay",
+      "tag": "v14.0.0",
+      "commit": "77c6d1e87296f186c631bc7f3945668ac7b0c697",
+      "tagPattern": "^v(\\d+)\\.(\\d+)\\.(\\d+)$",
+      "deploy": null,
+      "watchPaths": [
+        "packages/sdk/",
+        "packages/cli/",
+        "packages/contracts/"
+      ],
+      "attentionPatterns": [
+        "^packages/contracts/"
+      ]
+    }
+  }
+}

@@ -1,0 +1,47 @@
+# Rendered by `node scripts/upstream.mjs fly-config relaycast` at deploy time.
+# Dollar-brace placeholders come from GitHub environment variables (see docs/deploy.md);
+# UPSTREAM_TAG and UPSTREAM_COMMIT come from upstream.json.
+
+app = "${FLY_APP}"
+primary_region = "${FLY_PRIMARY_REGION}"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[experimental]
+  # The upstream image's ENTRYPOINT is the engine launcher; it refuses to start
+  # without a public https origin, so CMD carries --base-url.
+  cmd = ["--base-url", "${RELAYCAST_BASE_URL}"]
+
+[env]
+  RELAYCAST_DB_PATH = "/data/relaycast.db"
+  OUTPOST_UPSTREAM_TAG = "${UPSTREAM_TAG}"
+  OUTPOST_UPSTREAM_COMMIT = "${UPSTREAM_COMMIT}"
+
+[deploy]
+  # One machine with a SQLite volume: canary and bluegreen are not allowed with volumes.
+  strategy = "immediate"
+
+[mounts]
+  source = "relaycast_data"
+  destination = "/data"
+  initial_size = "1gb"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  # Self-host engine is a single process with in-memory idempotency windows;
+  # keep it running so restarts are deploys, not idle stops.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "30s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -1,0 +1,111 @@
+name: Upstream bump
+
+# Opens (or refreshes) one PR per upstream when a newer release tag exists.
+# Each upstream has a single long-lived branch, upstream/<name>, so a day with
+# several upstream releases still yields one PR pinned to the newest tag.
+
+on:
+  schedule:
+    - cron: '17 13 * * 1-5' # weekdays, ~09:17 US Eastern
+  workflow_dispatch:
+    inputs:
+      upstream:
+        description: Upstream to bump
+        type: choice
+        options: [all, relaycast, relay]
+        default: all
+      to:
+        description: Exact tag to pin (optional; default is the newest release)
+        type: string
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Bump ${{ matrix.upstream }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        upstream: [relaycast, relay]
+    steps:
+      - name: Skip unselected upstream
+        id: gate
+        run: |
+          selected="${{ inputs.upstream || 'all' }}"
+          if [ "$selected" = all ] || [ "$selected" = "${{ matrix.upstream }}" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # PRs opened with the default GITHUB_TOKEN do not trigger other workflows,
+      # so CI would never run on them. A GitHub App token avoids that. Without
+      # the app configured we fall back to GITHUB_TOKEN; push an empty-diff
+      # rebase or close/reopen locally to get CI in that case. See docs/upstream.md.
+      - name: Mint app token
+        id: app-token
+        if: steps.gate.outputs.run == 'true' && vars.UPSTREAM_BOT_APP_ID != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.UPSTREAM_BOT_APP_ID }}
+          private-key: ${{ secrets.UPSTREAM_BOT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.gate.outputs.run == 'true'
+        with:
+          ref: main
+          token: ${{ steps.app-token.outputs.token || github.token }}
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.gate.outputs.run == 'true'
+        with:
+          node-version: 22
+
+      - name: Bump pin
+        id: bump
+        if: steps.gate.outputs.run == 'true'
+        env:
+          TO: ${{ inputs.to }}
+        run: |
+          args=(bump "${{ matrix.upstream }}" --body-file "$RUNNER_TEMP/body.md")
+          if [ -n "$TO" ]; then args+=(--to "$TO"); fi
+          node scripts/upstream.mjs "${args[@]}"
+
+      - name: Open or update PR
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          NAME: ${{ matrix.upstream }}
+          FROM: ${{ steps.bump.outputs.from }}
+          TO: ${{ steps.bump.outputs.to }}
+          LEVEL: ${{ steps.bump.outputs.level }}
+        run: |
+          branch="upstream/$NAME"
+          title="chore(upstream): bump $NAME to $TO"
+          [ "$LEVEL" = major ] && title="$title (major)"
+
+          git config user.name "outpost-upstream[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$branch"
+          git commit -am "$title" -m "From $FROM ($LEVEL)."
+          git push --force origin "$branch"
+
+          gh label create upstream --color 5319e7 --description "Upstream pin bump" --force >/dev/null
+          gh label create "upstream:$LEVEL" --color fbca04 --force >/dev/null
+
+          existing="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --title "$title" --body-file "$RUNNER_TEMP/body.md" --add-label upstream --add-label "upstream:$LEVEL"
+            echo "Updated #$existing" >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh pr create --base main --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/body.md" --label upstream --label "upstream:$LEVEL"
+            echo "Opened PR for $NAME $TO" >> "$GITHUB_STEP_SUMMARY"
+          fi
