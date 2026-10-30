@@ -3,8 +3,8 @@
   "upstreams": {
     "relaycast": {
       "repo": "AgentWorkforce/relaycast",
-      "tag": "v11.0.0",
-      "commit": "752d660a9ba6cdb7d1fe692a9fd35621f45f1590",
+      "tag": "v12.2.1",
+      "commit": "711c9c7e62ed934533cfedab15bfbe61b08adc13",
       "tagPattern": "^v(\\d+)\\.(\\d+)\\.(\\d+)$",
       "deploy": "relaycast",
       "watchPaths": [
